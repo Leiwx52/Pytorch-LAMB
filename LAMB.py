@@ -102,7 +102,7 @@ class Lamb(Optimizer):
     
     def _init_paraName(self):
         r'''
-        Get all parameters's name in `self.net` and then store in `self.state`
+        Get all parameters' name in `self.net` and then store it in `self.state`
         Do it in initialzation.
         '''
         for name,para in self.net.named_parameters():
@@ -119,8 +119,8 @@ class Lamb(Optimizer):
             self.state[para]['para_name'] = this_para_name
     
     def _do_layer_adaptation(self, para):
-        r"""Whether to do layer-wise learning rate adaptation for
-        `para`.
+        r"""
+        Whether to do layer-wise learning rate adaptation for `para`.
         """
         para_name = self.state[para]['para_name']
         if self.exclude_from_layer_adaptation:
