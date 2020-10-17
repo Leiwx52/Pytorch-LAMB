@@ -3,7 +3,7 @@ import re
 import torch
 from torch.optim.optimizer import Optimizer
 from torch import Tensor
-
+from collections import defaultdict
 
 class Lamb(Optimizer):
     r"""Implements Lamb algorithm.
@@ -98,8 +98,27 @@ class Lamb(Optimizer):
         self.debias = debias
 
         super(Lamb, self).__init__(params, defaults)
+        self._check()
         self._init_paraName()
     
+    def _check(self):
+        r'''
+        Check if all `params` are in `net`
+        '''
+        netDict = defaultdict(dict)
+        for p in self.net.parameters():
+            netDict[p]=True
+        for group in self.param_groups:
+            for p in group['params']:
+                if netDict.get(p) is None:
+                    msg = (
+                        'All `params` must be in `net` '
+                        'but got unexpected parameter(s). '
+                        'Please check.' 
+                    )
+                    raise RuntimeError(msg)
+        del netDict
+
     def _init_paraName(self):
         r'''
         Get all parameters' name in `self.net` and then store it in `self.state`
