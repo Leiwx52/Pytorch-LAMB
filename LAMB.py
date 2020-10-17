@@ -33,7 +33,7 @@ class Lamb(Optimizer):
         debias: debias adam by (1 - beta**step) (default: False)
     Example:
         >>> from LAMB import Lamb
-        >>> optimizer = optim.Lamb(model, model.parameters(), lr=0.1)
+        >>> optimizer = Lamb(model, model.parameters(), lr=0.1)
         >>> optimizer.zero_grad()
         >>> loss_fn(model(input), target).backward()
         >>> optimizer.step()
