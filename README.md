@@ -7,7 +7,7 @@
 
 + `exculde_from_weight_decay` and `exclude_from_layer_adaptation` is implemented to exclude *weight decay* and *layer-wise adaptation* for some layers. Reference code can be found at [official tensorflow implementation](https://github.com/tensorflow/addons/blob/master/tensorflow_addons/optimizers/lamb.py) and [here](https://github.com/fastalgo/imagenet_resnet50_lamb/blob/master/optimization.py).
 + I pass `net`/`model` which the parameters belong as an argument, to configurate name for each parameter. This is for matching the names with list of regex patterns in `exculde_from_weight_decay` and `exclude_from_layer_adaptation`.
-+ Add gradient clipping into Lamb. If this has already been done outside the scope of `optimizer.step()` in your code, <u>**REMEMBER**</u> to set `grad_clip_norm = None` and `grad_clip_value = None`.
++ Add gradient clipping into Lamb. If this has already been done outside the scope of `optimizer.step()` in your code, <u>**REMEMBER**</u> to set `grad_clip_norm = None` and `grad_clip_value = None`. See reference code [here](https://github.com/fastalgo/imagenet_resnet50_lamb/blob/master/optimization.py).
 
 ## Usage
 
