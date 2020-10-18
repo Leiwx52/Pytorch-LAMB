@@ -1,8 +1,6 @@
 import math
 import re
 import torch
-from torch.autograd import grad
-from torch.nn.utils.clip_grad import clip_grad_norm
 from torch.optim.optimizer import Optimizer
 from torch import Tensor
 from collections import defaultdict
@@ -56,7 +54,7 @@ class Lamb(Optimizer):
 
         + This is different from some Pytorch optimizers, which does not need to pass a `net` argument.
         Adapt to `exculde_from_weight_decay` and `exclude_from_layer_adaptation` by including this args.
-        See Reference code #3 or https://github.com/fastalgo/imagenet_resnet50_lamb/blob/master/optimization.py
+        See Reference code #3 or #4
 
     """
 
@@ -299,7 +297,8 @@ if __name__ == "__main__":
             resnet.parameters(), 
             lr=0.01, 
             exclude_from_weight_decay=['Conv', 'bias'], 
-            exclude_from_layer_adaptation=['BatchNorm']
+            exclude_from_layer_adaptation=['BatchNorm'],
+            grad_clip_norm=1.0
         )
     criterion = torch.nn.CrossEntropyLoss()
 
