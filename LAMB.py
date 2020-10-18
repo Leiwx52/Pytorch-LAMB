@@ -1,6 +1,8 @@
 import math
 import re
 import torch
+from torch.autograd import grad
+from torch.nn.utils.clip_grad import clip_grad_norm
 from torch.optim.optimizer import Optimizer
 from torch import Tensor
 from collections import defaultdict
@@ -20,8 +22,6 @@ class Lamb(Optimizer):
         eps: term added to the denominator to improve
             numerical stability (default: 1e-8)
         weight_decay: weight decay (L2 penalty) (default: 0)
-        clamp_value: clamp weight_norm in (0,clamp_value) (default: 10)
-            set to a high value to avoid it (e.g 10e3)
         exclude_from_weight_decay: List of regex patterns of
               variables excluded from weight decay. Variables whose name
               contain a substring matching the pattern will be excluded.
@@ -31,6 +31,15 @@ class Lamb(Optimizer):
         adam: always use trust ratio = 1, which turns this
             into Adam. Useful for comparison purposes. (default: False)
         debias: debias adam by (1 - beta**step) (default: False)
+        clamp_value: clamp weight_norm in (0,clamp_value) (default: 10)
+            set to a high value to avoid it (e.g 10e3)
+        grad_clip_norm: clip gradient by norm,
+            -- view all gradients of all `param` as a single vector.
+        grad_clip_value: clip gradient by value, with the constraint that 
+            all gradient values lie in (-grad_clip_value, grad_clip_value)
+        **kwargs: keyword arguments. Allowed to be {`clipnorm`,
+              `clipvalue`}. `clipnorm` is clip gradients by
+              norm; `clipvalue` is clip gradients by value
     Example:
         >>> from LAMB import Lamb
         >>> optimizer = Lamb(model, model.parameters(), lr=0.1)
@@ -43,6 +52,7 @@ class Lamb(Optimizer):
         #1 https://github.com/cybertronai/pytorch-lamb
         #2 https://github.com/jettify/pytorch-optimizer/blob/master/torch_optimizer/lamb.py
         #3 https://github.com/tensorflow/addons/blob/master/tensorflow_addons/optimizers/lamb.py [Official]
+        #4 https://github.com/fastalgo/imagenet_resnet50_lamb/blob/master/optimization.py
 
         + This is different from some Pytorch optimizers, which does not need to pass a `net` argument.
         Adapt to `exculde_from_weight_decay` and `exclude_from_layer_adaptation` by including this args.
@@ -58,11 +68,14 @@ class Lamb(Optimizer):
         betas = (0.9, 0.999),
         eps = 1e-6,
         weight_decay = 0,
-        clamp_value = 10,
         exclude_from_weight_decay = None,
         exclude_from_layer_adaptation = None,
         adam = False,
         debias = False,
+        clamp_value = 10,
+        grad_clip_norm = 1.0,
+        grad_clip_value = None,
+        **kwargs
     ):
         if lr <= 0.0:
             raise ValueError('Invalid learning rate: {}'.format(lr))
@@ -80,12 +93,27 @@ class Lamb(Optimizer):
             raise ValueError(
                 'Invalid weight_decay value: {}'.format(weight_decay)
             )
-        if clamp_value < 0.0:
+        if clamp_value is not None and clamp_value < 0.0:
             raise ValueError('Invalid clamp value: {}'.format(clamp_value))
+
+        if grad_clip_norm is not None and grad_clip_norm < 0.0:
+            raise ValueError(
+                'Invalid grad_clip_norm value: {}'.format(grad_clip_norm)
+            )
+        
+        if grad_clip_value is not None and grad_clip_value < 0.0:
+            raise ValueError(
+                'Invalid grad_clip_value value: {}'.format(grad_clip_value)
+            )
+        
+        if grad_clip_norm and grad_clip_value:
+            raise ValueError(
+                'Error: grad_clip_norm and grad_clip_value shoule be excluded,'
+                'but got grad_clip_norm: {} and grad_clip_value: {}'.format(grad_clip_norm, grad_clip_value)
+            )
 
         defaults = dict(lr=lr, betas=betas, eps=eps, weight_decay=weight_decay)
         self.net = net
-        self.clamp_value = clamp_value  # clamp_value see reference code in Pytorch, they clamp value of the weight norm
         self.exclude_from_weight_decay = exclude_from_weight_decay
         # exclude_from_layer_adaptation is set to exclude_from_weight_decay if
         # the arg is None.
@@ -96,6 +124,9 @@ class Lamb(Optimizer):
             self.exclude_from_layer_adaptation = exclude_from_weight_decay
         self.adam = adam
         self.debias = debias
+        self.clamp_value = clamp_value  # clamp_value see reference code in Pytorch, they clamp value of the weight norm
+        self.grad_clip_norm = grad_clip_norm # clip gradient by norm -- view all grad of all `param` as a single vector
+        self.grad_clip_value = grad_clip_value # clip gradient by value
 
         super(Lamb, self).__init__(params, defaults)
         self._check()
@@ -156,6 +187,24 @@ class Lamb(Optimizer):
                 if re.search(r, para_name, re.I) is not None:
                     return False
         return True
+    
+    def gradient_clipping(self):
+        r'''
+        Gradient clipping.
+        `grad_clip_norm` and `grad_clip_value` should be excluded.
+        '''
+        if self.grad_clip_norm:
+            torch.nn.utils.clip_grad_norm_(
+                parameters = [p for group in self.param_groups for p in group['params']],
+                max_norm = self.grad_clip_norm,
+                norm_type = 2
+            )
+
+        if self.grad_clip_value:
+            torch.nn.utils.clip_grad_value_(
+                parameters = [p for group in self.param_groups for p in group['params']],
+                clip_value = self.grad_clip_value
+            )
 
     def step(self, closure=None):
         r"""Performs a single optimization step.
@@ -165,6 +214,10 @@ class Lamb(Optimizer):
         loss = None
         if closure is not None:
             loss = closure()
+
+        # Be Cautious if gradient clipping is done outside this optimizer.
+        # If so, SET `grad_clip_norm = None` and `grad_clip_value = None`.
+        self.gradient_clipping()
 
         for group in self.param_groups:
             for p in group['params']:
@@ -211,7 +264,9 @@ class Lamb(Optimizer):
                 # Apply bias to lr to avoid broadcast.
                 step_size = group['lr'] * bias_correction
 
-                weight_norm = torch.norm(p.data).clamp(0, self.clamp_value)
+                weight_norm = torch.norm(p.data)
+                if self.clamp_value:
+                    weight_norm.clamp_(0, self.clamp_value)
 
                 adam_step = exp_avg / exp_avg_sq.sqrt().add(group['eps'])
                 if group['weight_decay'] != 0 and self._do_use_weight_decay(p):
@@ -255,8 +310,3 @@ if __name__ == "__main__":
     loss = criterion(outp, target)
     loss.backward()
     optim.step()
-
-    for p in optim.state:
-        state = optim.state[p]
-        print(state['para_name'], state['trust_ratio'])
-
